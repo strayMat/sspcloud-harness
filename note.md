@@ -45,6 +45,22 @@ test_ws.py          tiny WS smoke-test client
 The sspcloud-mcp is a *separate* Onyxia service (its own Deployment). The
 harness talks to it over HTTP with the bearer header via pi-mcp-adapter.
 
+## Known bugs / to fix
+
+- [x] **File upload/download UI** — files panel now shows both `uploads/` and
+  `downloads/` with an upload button (multipart POST). Each project scoped.
+- [x] **Chat history on page reload** — on WS connect the frontend sends
+  `get_messages` to pi and renders the returned messages (user, assistant text
+  blocks, tool calls as cards). Also re-loads on project switch.
+
+## Remaining UI polish (lower priority)
+
+- [ ] Render assistant `thinking` blocks (currently skipped)
+- [ ] Show tool result output on click (currently just name + done/error)
+- [ ] Delete-project button in UI (REST exists but no UI)
+- [ ] Abort button (REST exists via WS `abort`, no button yet)
+- [ ] Drag-and-drop upload
+
 ## Deploy TODO (Onyxia)
 
 1. [ ] **Dockerfile**: python:3.12 + node:22, `pi install npm:pi-mcp-adapter`,

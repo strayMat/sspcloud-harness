@@ -86,11 +86,16 @@ class SessionManager:
         await self._ensure_proc()
         await self._proc.send({"type": "new_session"})
 
-    async def get_state(self) -> dict:
+    async def get_state(self) -> None:
         await self._ensure_proc()
-        # Fire-and-forget read: the response will come back as a record and be
-        # broadcast. For simplicity the endpoint just triggers it.
         await self._proc.send({"id": self._next_id(), "type": "get_state"})
+
+    async def get_messages(self) -> None:
+        """Ask pi for the full conversation; the response is broadcast to all
+        clients (used by the frontend to rehydrate the chat on page reload).
+        """
+        await self._ensure_proc()
+        await self._proc.send({"id": self._next_id(), "type": "get_messages"})
 
     # ------------------------------------------------------------------ #
     # WebSocket fan-out

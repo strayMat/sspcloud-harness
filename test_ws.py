@@ -1,4 +1,5 @@
 """Minimal end-to-end WS client for local testing (not part of the app)."""
+
 import asyncio
 import json
 import sys

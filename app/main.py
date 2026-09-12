@@ -246,6 +246,8 @@ async def websocket_chat(ws: WebSocket):
                 await manager.new_session()
             elif mtype == "get_state":
                 await manager.get_state()
+            elif mtype == "get_messages":
+                await manager.get_messages()
             elif mtype == "ping":
                 await ws.send_text(json.dumps({"type": "pong"}))
             else:
