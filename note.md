@@ -62,18 +62,26 @@ harness talks to it over HTTP with the bearer header via pi-mcp-adapter.
 - [ ] Abort button (REST exists via WS `abort`, no button yet)
 - [ ] Drag-and-drop upload
 
-## Deploy TODO (Onyxia)
+## Deploy plan (Onyxia)
 
-1. [ ] **Dockerfile**: python:3.12 + node:22, `pi install npm:pi-mcp-adapter`,
-      bake `.pi-agent` config.
-2. [ ] **Startup script**: generate `.mcp.json` (or set the MCP server) using
-      `SSPCLOUD_MCP_URL` / `SSPCLOUD_MCP_BEARER`; confirm pi-mcp-adapter picks
-      it up in RPC mode. (Check whether it supports env interpolation in the
-      header, else generate the file at boot.)
-3. [ ] **K8s / Onyxia service def**: permanent Deployment, PVC mounted for
-      `workspace/ .pi-sessions/ .pi-agent/`, liveness on `/health`, port 8080.
-4. [ ] **Auth**: Onyxia bearer in front of the gateway (single-user namespace).
-5. [ ] **E2E on cluster**: chat + sspcloud compute tools (e.g. run a notebook).
+1. [ ] **Dockerfile**: python:3.12 + node:22, bake pi + `pi install npm:pi-mcp-adapter`
+      (adapter present but no server wired in v1).
+2. [ ] **Entrypoint**: seed `.pi-agent`; generate `.mcp.json` only if
+      `SSPCLOUD_MCP_URL`/`SSPCLOUD_MCP_BEARER` are set (MCP off in v1).
+3. [ ] **CI**: GitHub Actions → DockerHub (`<user>/sspcloud-harness:latest`),
+      secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`.
+4. [ ] **Helm chart**: values = image, ingress hostname
+      `harness.ai-tools.ssp.cloud`, PVC 5Gi for `workspace/ .pi-sessions/
+      .pi-agent/`, env from K8s secret (`SSP_LLM_KEY`). Deploy from VSCode
+      service (K8s admin role): `helm install`.
+5. [ ] **E2E**: chat + file upload/download on `harness.ai-tools.ssp.cloud`.
+
+## Future: S3 persistence
+
+- PVC is the stopgap for `workspace/ .pi-sessions/ .pi-agent/`.
+- Long term: back it with the SSP Cloud S3/MinIO storage (service account
+  + K8s secret, as in the shiny tutorial), so data survives pod rescheduling
+  and is user-managed.
 
 ## Open / watch
 
