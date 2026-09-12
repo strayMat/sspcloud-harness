@@ -1,0 +1,31 @@
+[project]
+name = "sspcloud-harness"
+version = "0.1.0"
+description = "Claude-code-like remote harness: pi agent + FastAPI chat UI on SSPCloud/Onyxia."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.141.1",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.7",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+# Exclude generated/local state from linting.
+extend-exclude = [".pi-agent", ".pi-sessions", "workspace", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+# FastAPI uses callable-in-default-argument (File(...), Query(...)) by design.
+ignore = ["B008"]
+# Broad catches are used intentionally around the pi subprocess boundary
+# so a malformed stream record can never take down the whole service.
+[tool.ruff.lint.per-file-ignores]
+"pi_process.py" = ["BLE001", "S110"]
+"session_manager.py" = ["BLE001"]
