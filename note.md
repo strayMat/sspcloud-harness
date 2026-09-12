@@ -55,6 +55,7 @@ harness talks to it over HTTP with the bearer header via pi-mcp-adapter.
 
 ## Remaining UI polish (lower priority)
 
+- [ ] Add some extensions to underlying py : pi-web-access, @juicesharp/rpiv-todo
 - [ ] Render assistant `thinking` blocks (currently skipped)
 - [ ] Show tool result output on click (currently just name + done/error)
 - [ ] Delete-project button in UI (REST exists but no UI)
