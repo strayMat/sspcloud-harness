@@ -105,14 +105,7 @@ and refreshes the download list on `agent_settled`.
 - **WS reconnect**: the client auto-reconnects; the server re-broadcasts state.
 - **Liveness**: `/health` is a fast probe (does not depend on pi).
 
-## Deploy to Onyxia (TODO)
+## Deployment 
 
-1. Dockerfile: `python:3.12` + `node:22` (for pi) + pi packages.
-2. Install `pi-mcp-adapter` into the image's agent dir and point it at
-   `SSPCLOUD_MCP_URL` / `SSPCLOUD_MCP_BEARER` (generate `.mcp.json` at startup).
-3. Onyxia secrets → env vars (`SSP_LLM_KEY`, `SSPCLOUD_MCP_*`).
-4. Permanent Deployment (auto-restart, no auto-suspend) + PVC for
-   `workspace/`, `.pi-sessions/`, `.pi-agent/`.
-5. Expose port 8080 via the Onyxia HTTPS gateway.
 
-See `note.md` for the full design discussion.
+See [deployment repo](https://git.lab.sspcloud.fr/mdoutrel/sspcloud-harness-deployment)
