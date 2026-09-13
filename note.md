@@ -45,11 +45,13 @@ Management in vault and taken at deployment-time with kube.
 - [ ] Add some extensions to underlying py : pi-web-access, @juicesharp/rpiv-todo
 - [ ] Render assistant `thinking` blocks (currently skipped)
 - [ ] Show tool result output on click (currently just name + done/error)
-- [ ] Delete-project button in UI (REST exists but no UI)
-- [ ] Abort button (REST exists via WS `abort`, no button yet)
+- [ ] Image delivery: `get_messages` inlines base64, so big images bloat every
+  reload payload. Serve them via `/api/projects/{name}/images/...` (read from
+  disk) and reference by URL instead of embedding base64.
 - [ ] Drag-and-drop upload
 - [ ] check pi is in auto-approve mode to avoid stall discussion
-- [ ] Usecase check passing: able to download from insee.fr a data table (eg. https://catalogue-donnees.insee.fr/fr/catalogue/recherche/DS_TOUR_FREQ) and plot a graph rendered to the user 
+- [ ] Usecase check passing: able to download from insee.fr a data table (eg. <https://catalogue-donnees.insee.fr/fr/catalogue/recherche/DS_TOUR_FREQ>) and plot a graph rendered to the user
+- [ ] Better system prompt that take into account the use case (distnace instuction) 
 
 ## Future: S3 persistence
 
