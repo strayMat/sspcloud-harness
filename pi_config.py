@@ -37,8 +37,6 @@ def seed_agent_dir() -> None:
     settings = {
         "defaultProvider": config.PROVIDER,
         "defaultModel": config.MODEL_ID,
-        # No packages locally: pi-mcp-adapter / pi-web-access are wired at
-        # deploy time (they need the sspcloud-mcp service to be reachable).
         "theme": "dark",
     }
     settings_path = config.AGENT_DIR / "settings.json"

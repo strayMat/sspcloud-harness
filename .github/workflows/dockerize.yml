@@ -18,7 +18,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: straymat/sspcloud-harness
-          flavor: latest=auto
+          tags: |
+            type=raw,value=latest
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

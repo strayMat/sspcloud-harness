@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import shutil
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -100,8 +100,11 @@ def _list_projects() -> list[dict[str, Any]]:
         sess = config.session_path(d.name)
         hist_lines = 0
         if sess.exists():
-            with suppress(OSError), open(sess, "rb") as f:
-                hist_lines = sum(1 for _ in f)
+            try:
+                with open(sess, "rb") as f:
+                    hist_lines = sum(1 for _ in f)
+            except OSError:
+                pass
         out.append(
             {
                 "name": d.name,
@@ -137,14 +140,12 @@ async def delete_project(name: str):
     pd = config.project_dir(name)
     if manager.project == name:
         raise HTTPException(409, "cannot delete the active project; switch first")
-    if pd.exists():
-        try:
-            shutil.rmtree(pd)
-        except OSError as err:
-            raise HTTPException(500, "could not delete project dir") from err
-    sess = config.session_path(name)
-    if sess.exists():
-        sess.unlink()
+    for d in (pd, config.session_dir(name)):
+        if d.exists():
+            try:
+                shutil.rmtree(d)
+            except OSError as err:
+                raise HTTPException(500, "could not delete project") from err
     return JSONResponse({"ok": True})
 
 

@@ -43,6 +43,8 @@
   .msg code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
   .tool { align-self: flex-start; font-size: 12px; color: var(--muted); background: #141925; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; max-width: 760px; }
   .tool .tname { color: var(--accent); font-weight: 600; }
+  .msg.img { align-self: flex-start; background: var(--assistant); max-width: 480px; padding: 8px; }
+  .msg.img img { display: block; max-width: 100%; max-height: 320px; border-radius: 8px; }
 
   #inputbar { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--panel); }
   #input {
@@ -81,6 +83,7 @@
     <div class="status"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
     <div class="spacer"></div>
     <select id="project"></select>
+    <button id="delproj" title="Delete active workspace (switches to default)">Delete</button>
     <button id="newproj" title="New project">+ New</button>
     <button id="filesbtn" title="Toggle files">Files</button>
   </header>
@@ -95,7 +98,7 @@
   <div id="chat"></div>
 
   <div id="inputbar">
-    <textarea id="input" placeholder="Send a message…  (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
+    <textarea id="input" placeholder="Send a message…  (/stop aborts)  (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
     <button id="send" class="primary">Send</button>
   </div>
 
@@ -118,6 +121,7 @@ const statusEl = document.getElementById('status');
 const dot = document.getElementById('dot');
 
 let ws, currentProject = null, streaming = false;
+const DEFAULT_PROJECT = 'default';
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -146,6 +150,21 @@ function addTool(name, state) {
   chat.appendChild(t);
   chat.scrollTop = chat.scrollHeight;
   return t;
+}
+
+// Render image content blocks (e.g. from pi's read tool) as data-URI <img>.
+function addImages(blocks) {
+  (blocks || []).filter(b => b.type === 'image' && b.data).forEach(b => {
+    const m = el('div', 'msg img');
+    const img = document.createElement('img');
+    img.src = `data:${b.mimeType || 'image/*'};base64,${b.data}`;
+    m.appendChild(img);
+    chat.appendChild(m);
+    chat.scrollTop = chat.scrollHeight;
+  });
+}
+function imageBlocks(content) {
+  return Array.isArray(content) ? content : [];
 }
 
 async function api(path, opts) {
@@ -198,7 +217,7 @@ async function loadProjects() {
     o.value = p.name;
     projectSel.appendChild(o);
   });
-  if (d.active) { currentProject = d.active; }
+  if (d.active) { currentProject = d.active; projectSel.value = d.active; }
   statusEl.textContent = d.active ? `project: ${d.active}` : 'no project';
 }
 
@@ -257,9 +276,12 @@ function renderHistory(messages) {
     } else if (m.role === 'assistant') {
       (m.content || []).forEach(block => {
         if (block.type === 'text' && block.text) addMsg('assistant', block.text);
+        else if (block.type === 'image') addImages([block]);
         else if (block.type === 'toolCall') addTool(block.name, 'done');
         // thinking blocks are skipped in the history view
       });
+    } else if (m.role === 'toolResult') {
+      addImages(m.content);  // e.g. images produced by the read tool
     }
   }
   chat.scrollTop = chat.scrollHeight;
@@ -300,6 +322,7 @@ function handle(rec) {
     currentTool = addTool(rec.toolName, 'running…');
   } else if (t === 'tool_execution_end' && currentTool) {
     currentTool.innerHTML = `<span class="tname">${escapeHtml(rec.toolName)}</span> · ${rec.isError ? 'error' : 'done'}`;
+    addImages(rec.result && rec.result.content);  // surface images (read tool)
   } else if (t === 'agent_settled') {
     streaming = false; currentAssistant = null; currentTool = null; loadFiles();
   } else if (t === 'response') {
@@ -321,9 +344,15 @@ let currentAssistant = null, currentTool = null;
 function send() {
   const text = input.value.trim();
   if (!text || !ws || ws.readyState !== 1) return;
+  input.value = ''; input.style.height = 'auto';
+  if (text === '/stop') {
+    ws.send(JSON.stringify({ type: 'abort' }));
+    addMsg('system', 'aborted');
+    streaming = false;
+    return;
+  }
   addMsg('user', text);
   ws.send(JSON.stringify({ type: 'prompt', message: text }));
-  input.value = ''; input.style.height = 'auto';
   streaming = true;
 }
 
@@ -342,6 +371,21 @@ projectSel.onchange = async () => {
   loadProjects(); loadFiles();
   // Reload this project's history from pi.
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'get_messages' }));
+};
+
+document.getElementById('delproj').onclick = async () => {
+  const name = currentProject;
+  if (!name) return;
+  if (!confirm(`Delete workspace "${name}"? Its files and chat history will be removed.`)) return;
+  try {
+    await api(`/api/projects/${DEFAULT_PROJECT}/activate`, { method: 'POST' });
+    await api(`/api/projects/${name}`, { method: 'DELETE' });
+    chat.innerHTML = '';
+    currentProject = DEFAULT_PROJECT;
+    addMsg('system', `deleted workspace "${name}"`);
+    loadProjects(); loadFiles();
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'get_messages' }));
+  } catch (e) { alert(e.message); }
 };
 
 document.getElementById('newproj').onclick = async () => {
