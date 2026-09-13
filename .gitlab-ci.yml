@@ -1,0 +1,28 @@
+# Build the harness image and push it to DockerHub on every push to main.
+#
+# Secrets (DOCKERHUB_USERNAME, DOCKERHUB_TOKEN): normally copied from the
+# Onyxia vault secret SSPCLOUD_HARNESS into GitLab project CI/CD variables
+# (Settings -> CI/CD -> Variables, masked).
+# If git.lab.sspcloud.fr supports GitLab's native vault integration, replace
+# that with:
+#   secrets:
+#     vault:
+#       - path: "onyxia-kv/user-mdoutrel/SSPCLOUD_HARNESS"
+#         role: <vault-role>
+
+stages:
+  - build
+
+build:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    IMAGE: "$DOCKERHUB_USERNAME/sspcloud-harness:latest"
+  script:
+    - docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_TOKEN"
+    - docker build -t "$IMAGE" .
+    - docker push "$IMAGE"

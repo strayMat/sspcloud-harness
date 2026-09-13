@@ -3,6 +3,7 @@
 ## Status (local)
 
 Working local prototype. Verified end-to-end:
+
 - Chat over WebSocket → pi RPC → LLM (qwen3-8-27b via sspcloud) ✓
 - File upload → pi `read` → pi `write` → download ✓
 - Project isolation (fresh context per project) ✓
@@ -37,7 +38,7 @@ test_ws.py          tiny WS smoke-test client
 ## Secrets (Onyxia → env vars)
 
 | Env var | Purpose |
-|---------|---------|
+| --------- | --------- |
 | `SSP_LLM_KEY` | LLM key (`$SSP_LLM_KEY` in models.json) |
 | `SSPCLOUD_MCP_URL` | sspcloud-mcp HTTPS URL |
 | `SSPCLOUD_MCP_BEARER` | sspcloud-mcp bearer token |
@@ -62,25 +63,116 @@ harness talks to it over HTTP with the bearer header via pi-mcp-adapter.
 - [ ] Abort button (REST exists via WS `abort`, no button yet)
 - [ ] Drag-and-drop upload
 
-## Deploy plan (Onyxia)
+## Deploy plan (Onyxia) — artifacts written, deploy pending
 
-1. [ ] **Dockerfile**: python:3.12 + node:22, bake pi + `pi install npm:pi-mcp-adapter`
-      (adapter present but no server wired in v1).
-2. [ ] **Entrypoint**: seed `.pi-agent`; generate `.mcp.json` only if
-      `SSPCLOUD_MCP_URL`/`SSPCLOUD_MCP_BEARER` are set (MCP off in v1).
-3. [ ] **CI**: GitHub Actions → DockerHub (`<user>/sspcloud-harness:latest`),
-      secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`.
-4. [ ] **Helm chart**: values = image, ingress hostname
-      `harness.ai-tools.ssp.cloud`, PVC 5Gi for `workspace/ .pi-sessions/
-      .pi-agent/`, env from K8s secret (`SSP_LLM_KEY`). Deploy from VSCode
-      service (K8s admin role): `helm install`.
-5. [ ] **E2E**: chat + file upload/download on `harness.ai-tools.ssp.cloud`.
+Decided:
+
+- Repo: `git.lab.sspcloud.fr/mdoutrel/sspcloud_harness` (GitLab → `.gitlab-ci.yml`).
+- Registry: **DockerHub**; all secrets (DOCKERHUB_USERNAME, DOCKERHUB_TOKEN,
+  SSP_LLM_KEY) live in one Onyxia vault secret `SSPCLOUD_HARNESS`
+  (KV v2 @ `onyxia-kv/user-mdoutrel/SSPCLOUD_HARNESS`).
+- Ingress: `harness.ai-tools.ssp.cloud` (confirm on deploy; instance pattern
+  is usually `*.lab.sspcloud.fr`).
+- Cluster access: VSCode service with K8s **admin** role (kubectl + helm).
+
+Secret plumbing (SSP_LLM_KEY), mirrors the S3 tutorial pattern:
+
+- Single source of truth: Onyxia vault secret `SSPCLOUD_HARNESS`
+  (`onyxia-kv/user-mdoutrel/SSPCLOUD_HARNESS`). Never hardcoded, never in
+  Git, never re-typed.
+- Onyxia's automatic vault→env injection (service config → Vault tab) only
+  applies to UI-launched services — a helm-deployed app is NOT one.
+  So: at deploy time, copy vault → K8s secret from a VSCode service (which
+  has VAULT_ADDR/VAULT_TOKEN + vault CLI):
+    kubectl create secret generic ssphub-harness \
+      --from-literal=SSP_LLM_KEY="$(vault kv get -field=SSP_LLM_KEY \
+        "$VAULT_MOUNT/$VAULT_TOP_DIR/SSPCLOUD_HARNESS")" -n <ns> \
+      --dry-run=client -o yaml | kubectl apply -f -
+- Chart: envFrom secretRef ssphub-harness → pod env → pi subprocess →
+  "$SSP_LLM_KEY" interpolation in models.json (verified end-to-end).
+- Rotation: re-run the kubectl command + `kubectl rollout restart
+  deployment/<release>`. Pod env is fixed at pod start.
+- App fail-fast: lifespan raises if SSP_LLM_KEY is missing, so a missing
+  secret crash-loops loudly instead of failing on first chat.
+- GitLab CI (DockerHub push) is NOT an Onyxia service: copy the 2 DockerHub
+  values into GitLab project CI/CD variables (Settings → CI/CD → Variables,
+  masked). Native `secrets:vault` (GitLab ≥17.11) is the cleaner
+  alternative if the platform has it enabled.
+- If the GitLab runner can't run docker (dind), fallback: `docker build &&
+  docker push` from the Onyxia VSCode service (docker is available there,
+  token read from the vault secret).
+
+Artifacts in app repo (`git.lab.sspcloud.fr/mdoutrel/sspcloud_harness`):
+
+- `Dockerfile` — python:3.13-slim + node 22 + pi (npm global), uv deps.
+  Built and smoke-tested: /health 200, UI 200, pi subprocess spawns
+  (pi_running:true).
+  Gotcha hit: this machine's Docker daemon 27.2.1 flattens directory COPYs
+  (`COPY app ./` → contents in `.`). Fixed with trailing-slash form
+  `COPY app/ ./app/` — works on any daemon.
+  Gotcha 2: `uv run` at boot re-syncs dev deps (needs network); CMD runs
+  `/app/.venv/bin/uvicorn` directly, with `PYTHONPATH=/app`.
+- `.gitlab-ci.yml` — build+push to DockerHub on main.
+- **No Helm chart in this repo**: a SEPARATE deployment repo (mirrors the
+  template-shiny-deployment pattern) holds the chart: Deployment (Recreate
+  strategy, probes on /health, envFrom secret `ssphub-harness`), Service,
+  Ingress, PVC 5Gi mounted at /data (→ PI_AGENT_DIR/PI_SESSION_DIR/
+  HARNESS_WORKSPACE).
+
+Remaining steps:
+
+1. [ ] Push app repo to git.lab.sspcloud.fr; check a runner exists
+      (Settings → CI/CD → Runners). If not, build+push from VSCode service.
+2. [ ] Set GitLab CI/CD variables DOCKERHUB_USERNAME/DOCKERHUB_TOKEN
+      (values from vault secret SSPCLOUD_HARNESS).
+3. [ ] Create the deployment repo with the Helm chart (see "Chart spec"
+      above); push it, clone from the VSCode admin service.
+4. [ ] On the VSCode admin service: `kubectl create secret docker-registry
+      dockerhub ...` and `kubectl create secret generic ssphub-harness
+      --from-literal=SSP_LLM_KEY=...` in your namespace.
+5. [ ] Fill the deployment repo's `values.yaml` (image repo, pullSecret,
+      hostname, envSecret) → `helm install`.
+6. [ ] E2E: chat + upload/download on the deployed URL.
+
+v1 scope: no sspcloud-mcp (no documented server found); `.mcp.json`
+wiring stays as a later step, gated on SSPCLOUD_MCP_URL/Bearer being set.
+
+Chart spec (for the deployment repo):
+
+```yaml
+# values.yaml
+image:
+  repository: <DOCKERHUB_USERNAME>/sspcloud-harness   # CI image
+  tag: latest
+  pullPolicy: Always
+  pullSecret: dockerhub
+ingress:
+  enabled: true
+  hostname: harness.ai-tools.ssp.cloud
+envSecret: ssphub-harness      # holds SSP_LLM_KEY
+persistence:
+  size: 5Gi
+  existingClaim: ""           # skip PVC creation when set
+replicas: 1
+resources: {requests: {cpu: 200m, memory: 512Mi},
+            limits: {memory: 2Gi}}
+```
+
+Templates (4 resources, all validated with helm v3.16.4):
+
+- Deployment: Recreate strategy (1 replica + 1 PVC), containerPort 8080,
+  envFrom secretRef `envSecret`, readiness on /health (5s/10s),
+  liveness on /health (30s/30s), volume `data` → /data (RWO PVC
+  `<release>-data`).
+- Service: 8080 → containerPort.
+- Ingress: `ingress.hostname` → `/` → service (Prefix).
+- PVC: RWO `persistence.size`, skipped when `existingClaim` set.
 
 ## Future: S3 persistence
 
 - PVC is the stopgap for `workspace/ .pi-sessions/ .pi-agent/`.
 - Long term: back it with the SSP Cloud S3/MinIO storage (service account
-  + K8s secret, as in the shiny tutorial), so data survives pod rescheduling
+  - K8s secret, as in the shiny tutorial), so data survives pod rescheduling
   and is user-managed.
 
 ## Open / watch

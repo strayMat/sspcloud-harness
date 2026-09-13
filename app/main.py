@@ -44,6 +44,13 @@ DEFAULT_PROJECT = "default"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail fast: a pod without the key would only die on the first chat
+    # message. Crash-loop loudly instead.
+    if not os.environ.get(config.LLM_KEY_ENV):
+        raise RuntimeError(
+            f"{config.LLM_KEY_ENV} missing from environment; "
+            "check the ssphub-harness secret (envFrom) in the chart"
+        )
     config.ensure_layout()
     pi_config.seed_agent_dir()
     # Pre-create default project dir.
