@@ -74,28 +74,28 @@ class SessionManager:
         cmd: dict[str, Any] = {"id": self._next_id(), "type": "prompt", "message": message}
         if streaming_behavior:
             cmd["streamingBehavior"] = streaming_behavior
-        await self._ensure_proc()
-        await self._proc.send(cmd)
+        proc = await self._ensure_proc()
+        await proc.send(cmd)
         return cmd["id"]
 
     async def abort(self) -> None:
-        await self._ensure_proc()
-        await self._proc.send({"type": "abort"})
+        proc = await self._ensure_proc()
+        await proc.send({"type": "abort"})
 
     async def new_session(self) -> None:
-        await self._ensure_proc()
-        await self._proc.send({"type": "new_session"})
+        proc = await self._ensure_proc()
+        await proc.send({"type": "new_session"})
 
     async def get_state(self) -> None:
-        await self._ensure_proc()
-        await self._proc.send({"id": self._next_id(), "type": "get_state"})
+        proc = await self._ensure_proc()
+        await proc.send({"id": self._next_id(), "type": "get_state"})
 
     async def get_messages(self) -> None:
         """Ask pi for the full conversation; the response is broadcast to all
         clients (used by the frontend to rehydrate the chat on page reload).
         """
-        await self._ensure_proc()
-        await self._proc.send({"id": self._next_id(), "type": "get_messages"})
+        proc = await self._ensure_proc()
+        await proc.send({"id": self._next_id(), "type": "get_messages"})
 
     # ------------------------------------------------------------------ #
     # WebSocket fan-out
@@ -136,11 +136,15 @@ class SessionManager:
     async def _broadcast(self, record: dict) -> None:
         await self._on_event(record)
 
-    async def _ensure_proc(self) -> None:
+    async def _ensure_proc(self) -> PiProcess:
         if not self.active:
             if self._project is None:
                 raise RuntimeError("no active project")
             await self.activate(self._project)
+        proc = self._proc
+        if proc is None:
+            raise RuntimeError("no active pi process")
+        return proc
 
 
 def json_dumps(record: dict) -> str:

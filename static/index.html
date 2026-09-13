@@ -64,6 +64,15 @@
   #files .row .fname { flex: 1; }
   #files .row .fsize { color: var(--muted); font-size: 11px; }
   #files a { color: var(--accent); text-decoration: none; }
+
+  /* Login overlay */
+  #login-overlay { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; z-index: 10; }
+  #login-overlay.show { display: flex; }
+  #login-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 28px 24px; width: 300px; }
+  #login-box h2 { margin: 0 0 16px; font-size: 16px; }
+  #login-box input { width: 100%; background: #1f2532; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-size: 14px; margin-bottom: 10px; }
+  #login-box input:focus { outline: none; border-color: var(--accent); }
+  #login-err { font-size: 12px; color: #e5534b; min-height: 16px; }
 </style>
 </head>
 <body>
@@ -88,6 +97,15 @@
   <div id="inputbar">
     <textarea id="input" placeholder="Send a message…  (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
     <button id="send" class="primary">Send</button>
+  </div>
+
+  <div id="login-overlay">
+    <div id="login-box">
+      <h2>SSPCloud <span style="color:var(--accent)">Pi</span> Harness</h2>
+      <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password" />
+      <div id="login-err"></div>
+      <button id="login-btn" class="primary">Login</button>
+    </div>
   </div>
 
 <script>
@@ -132,9 +150,45 @@ function addTool(name, state) {
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
+  if (r.status === 401) { showLogin(); throw new Error('unauthorized'); }
   if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
   return r.json();
 }
+
+const loginOverlay = document.getElementById('login-overlay');
+let authChecked = false;
+
+function showLogin() {
+  loginOverlay.classList.add('show');
+  document.getElementById('login-pass').focus();
+}
+
+async function tryLogin() {
+  const pass = document.getElementById('login-pass').value;
+  try {
+    const r = await fetch('/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ password: pass }) });
+    if (!r.ok) throw new Error('bad password');
+    loginOverlay.classList.remove('show');
+    document.getElementById('login-err').textContent = '';
+    document.getElementById('login-pass').value = '';
+    authChecked = true;
+    connect();
+  } catch (e) {
+    document.getElementById('login-err').textContent = e.message;
+  }
+}
+
+document.getElementById('login-btn').onclick = tryLogin;
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+
+// Gate startup: if auth is on and we're not logged in, show the overlay.
+async function init() {
+  const d = await (await fetch('/auth/status')).json();
+  if (d.enabled) { showLogin(); return; }
+  authChecked = true;
+  connect();
+}
+init();
 
 async function loadProjects() {
   const d = await api('/api/projects');
@@ -303,8 +357,6 @@ document.getElementById('newproj').onclick = async () => {
 };
 
 document.getElementById('filesbtn').onclick = () => { filesPanel.classList.toggle('show'); loadFiles(); };
-
-connect();
 </script>
 </body>
 </html>

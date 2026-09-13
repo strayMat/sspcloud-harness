@@ -18,19 +18,23 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import (
+    Body,
     FastAPI,
     File,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
 import pi_config
+from app import auth
 from session_manager import SessionManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -61,6 +65,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="SSPCloud Pi Harness", lifespan=lifespan)
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Gate every /api and /static path behind the session cookie.
+
+    /health and /login stay open so a bare curl / browser can reach login.
+    WebSocket auth is handled separately in websocket_chat.
+    """
+
+    EXEMPT = frozenset({"/health", "/login", "/auth/status", "/"})
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        need_auth = auth.AUTH.enabled and path not in self.EXEMPT and not path.startswith("/ws")
+        if need_auth and not auth.verify_token(request.cookies.get(auth.COOKIE_NAME, "")):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
 
 # ---------------------------------------------------------------------- #
 # Project management
@@ -116,7 +138,10 @@ async def delete_project(name: str):
     if manager.project == name:
         raise HTTPException(409, "cannot delete the active project; switch first")
     if pd.exists():
-        shutil.rmtree(pd)
+        try:
+            shutil.rmtree(pd)
+        except OSError as err:
+            raise HTTPException(500, "could not delete project dir") from err
     sess = config.session_path(name)
     if sess.exists():
         sess.unlink()
@@ -165,14 +190,17 @@ async def upload_file(name: str, file: UploadFile = File(...)):
     target.parent.mkdir(parents=True, exist_ok=True)
 
     size = 0
-    with open(target, "wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > MAX_UPLOAD_BYTES:
-                f.close()
-                target.unlink(missing_ok=True)
-                raise HTTPException(413, f"file exceeds {MAX_UPLOAD_BYTES} bytes")
-            f.write(chunk)
+    try:
+        with open(target, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    f.close()
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(413, f"file exceeds {MAX_UPLOAD_BYTES} bytes")
+                f.write(chunk)
+    except OSError as err:
+        raise HTTPException(500, "write failed") from err
     log.info("uploaded %s -> %s (%d bytes)", file.filename, target, size)
     return JSONResponse({"ok": True, "path": f"uploads/{target.name}", "size": size})
 
@@ -220,6 +248,9 @@ async def download_file(name: str, path: str):
 
 @app.websocket("/ws")
 async def websocket_chat(ws: WebSocket):
+    if not auth.check_ws_cookie(ws):
+        await ws.close(code=1008)  # policy violation: unauthenticated
+        return
     await ws.accept()
     await manager.register(ws)
     try:
@@ -286,4 +317,30 @@ async def index():
     return HTMLResponse((STATIC_DIR / "index.html").read_text())
 
 
+# ---------------------------------------------------------------------- #
+# Auth
+# ---------------------------------------------------------------------- #
+@app.get("/auth/status")
+async def auth_status():
+    return {"enabled": auth.AUTH.enabled}
+
+
+@app.post("/login")
+async def login(payload: dict[str, str] = Body(...)):
+    password = payload.get("password", "")
+    if not auth.check_password(password):
+        raise HTTPException(401, "bad password")
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(**auth.get_cookie(auth.make_token()))
+    return resp
+
+
+@app.post("/logout")
+async def logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE_NAME, path="/")
+    return resp
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.add_middleware(AuthMiddleware)

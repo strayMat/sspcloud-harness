@@ -35,6 +35,9 @@ uv sync
 # model API key (Onyxia injects this as an env var in prod)
 export SSP_LLM_KEY=...
 
+# optional: password-protect the UI (unset = no auth, local dev mode)
+export HARNESS_PASSWORD=...
+
 # run
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8080
 # open http://localhost:8080
@@ -49,8 +52,10 @@ uv run python test_ws.py "What is 2+2?"
 ## Configuration (env vars)
 
 | Var | Default | Purpose |
-|-----|---------|---------|
+| ----- | --------- | --------- |
 | `SSP_LLM_KEY` | – | LLM API key (required; used as `$SSP_LLM_KEY` in models.json) |
+| `HARNESS_PASSWORD` | – | UI password; unset = auth disabled (local dev) |
+| `HARNESS_AUTH_SECRET` | = password | HMAC secret for session cookies |
 | `SSP_PROVIDER` | `sspcloud` | LLM provider id |
 | `SSP_MODEL` | `qwen3-8-27b` | default model id |
 | `PI_BIN` | `pi` | path to the pi executable |
@@ -64,7 +69,7 @@ uv run python test_ws.py "What is 2+2?"
 ## REST API
 
 | Method | Path | Purpose |
-|--------|------|---------|
+| -------- | ------ | --------- |
 | GET | `/` | chat UI |
 | GET | `/health` | liveness probe |
 | GET | `/api/projects` | list projects (+active) |
@@ -82,6 +87,7 @@ Client → server: `{"type":"prompt","message":"..."}`, `{"type":"abort"}`,
 
 Server → client: the raw pi RPC event stream (see `docs/rpc.md`) plus a few
 harness-level records:
+
 - `{"type":"harness","event":"activated","project":...}` on (re)connect
 - `{"type":"harness","event":"pi_restarted","project":...}` after a crash respawn
 - `{"type":"error","message":...}` for bad input

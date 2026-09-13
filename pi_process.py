@@ -52,13 +52,14 @@ class PiProcess:
         self._last_activity = 0.0
         self._stopping = False  # True when stop() is in progress (no respawn)
         self._dead_fired = False
+        self._retried = False  # True after one failed-session recovery (no 2nd attempt)
         self._write_lock = asyncio.Lock()
         self._active = False  # True between agent_start and agent_settled
 
     # ------------------------------------------------------------------ #
     # Lifecycle
     # ------------------------------------------------------------------ #
-    async def start(self) -> None:
+    async def start(self, fresh: bool = False) -> None:
         project_dir = config.project_dir(self.project)
         project_dir.mkdir(parents=True, exist_ok=True)
         for sub in ("uploads", "downloads"):
@@ -66,13 +67,15 @@ class PiProcess:
 
         sess_dir = config.SESSION_DIR / self.project
         sess_dir.mkdir(parents=True, exist_ok=True)
-        session_file = config.latest_session(self.project)
+        session_file = None if fresh else config.latest_session(self.project)
 
         argv = [config.PI_BIN, "--mode", "rpc"]
         if session_file is not None and session_file.exists():
             argv += ["--session", str(session_file)]
             log.info("[pi:%s] resuming %s", self.project, session_file.name)
         else:
+            # New session (or recovery): pi only writes the .jsonl on the
+            # first event, so no placeholder file is created here.
             log.info("[pi:%s] starting new session", self.project)
 
         env = dict(os.environ)
@@ -97,6 +100,7 @@ class PiProcess:
 
     async def stop(self) -> None:
         self._stopping = True
+        self._retried = True  # a stopped process must not self-recover
         for task in (self._reader_task, self._watchdog_task):
             if task:
                 task.cancel()
@@ -191,10 +195,25 @@ class PiProcess:
         if self._stopping or self._dead_fired:
             return
         self._dead_fired = True
+        rc = self._proc.returncode if self._proc else None
+        # A broken session file (e.g. stored cwd vanished after a project
+        # rename) makes pi exit immediately on resume. The manager's
+        # respawn would just re-resume the same file => crash loop. Recover
+        # once, in place, with a fresh session; the chat history is lost
+        # but the project stays usable.
+        if not self._retried and rc not in (None, 0):
+            self._retried = True
+            log.warning(
+                "[pi:%s] session resume failed (rc=%s), restarting with a new session",
+                self.project,
+                rc,
+            )
+            await self.start(fresh=True)
+            return
         log.warning(
             "[pi:%s] process exited unexpectedly (rc=%s)",
             self.project,
-            self._proc.returncode if self._proc else None,
+            rc,
         )
         if self.on_dead:
             try:
